@@ -26,7 +26,9 @@ from bosdyn.client.robot_command import RobotCommandClient, blocking_stand
 from bosdyn.client.robot_state import RobotStateClient
 from constrained_manipulation_helper import *
 from bosdyn.api import robot_command_pb2
+from bosdyn.api import arm_command_pb2, geometry_pb2
 from bosdyn.client import robot_command
+from bosdyn.client.frame_helpers import GRAV_ALIGNED_BODY_FRAME_NAME, ODOM_FRAME_NAME, get_a_tform_b
 from bosdyn.client.robot_command import (RobotCommandBuilder, RobotCommandClient,
                                          block_until_arm_arrives, blocking_stand)
 from bosdyn.client.robot_state import RobotStateClient
@@ -280,25 +282,81 @@ def run_constrained_manipulation(config, sdk, robot, lease_client, robot_state_c
     # better practice, but in this example, a user might want to switch back and forth between
     # using the tablet and using this script. Using take allows for directly hijacking control
     # away from the tablet.
-    lease_client.take()
-    with bosdyn.client.lease.LeaseKeepAlive(lease_client, must_acquire=True, return_at_exit=True):
-        command.full_body_command.constrained_manipulation_request.end_time.CopyFrom(
-            robot.time_sync.robot_timestamp_from_local_secs(time.time() + 10))
-        command_client.robot_command_async(command)
-        time.sleep(15.0)
+    #lease_client.take()
+    #with bosdyn.client.lease.LeaseKeepAlive(lease_client, must_acquire=True, return_at_exit=True):
+    command.full_body_command.constrained_manipulation_request.end_time.CopyFrom(
+        robot.time_sync.robot_timestamp_from_local_secs(time.time() + 10))
+    command_client.robot_command_async(command)
+    time.sleep(15.0)
 
 def open_gripper(options, sdk, robot, lease_client, robot_state_client, image_client, manipulation_api_client, command_client):
      # Close the gripper
-    input("here we go!")
-    gripper_command = RobotCommandBuilder.claw_gripper_open_command()
+    robot_state = robot_state_client.get_robot_state()
+    robot_hand_pose = robot_state.kinematic_state.transforms_snapshot.child_to_parent_edge_map["hand"].parent_tform_child
+    print(robot_hand_pose)
+    # Make the arm pose RobotCommand
+    # Build a position to move the arm to (in meters, relative to and expressed in the gravity aligned body frame).
+    x = robot_hand_pose.position.x
+    y = robot_hand_pose.position.y
+    z = robot_hand_pose.position.z
+    hand_ewrt_flat_body = geometry_pb2.Vec3(x=x, y=y, z=z)
+
+    # Rotation as a quaternion
+    qw = robot_hand_pose.rotation.w
+    qx = robot_hand_pose.rotation.x
+    qy = robot_hand_pose.rotation.y
+    qz = robot_hand_pose.rotation.z
+    flat_body_Q_hand = geometry_pb2.Quaternion(w=qw, x=qx, y=qy, z=qz)
+
+    flat_body_T_hand = geometry_pb2.SE3Pose(position=hand_ewrt_flat_body,
+                                            rotation=flat_body_Q_hand)
+
+    robot_state = robot_state_client.get_robot_state()
+    odom_T_flat_body = get_a_tform_b(robot_state.kinematic_state.transforms_snapshot,
+                                     ODOM_FRAME_NAME, GRAV_ALIGNED_BODY_FRAME_NAME)
+
+    odom_T_hand = odom_T_flat_body * math_helpers.SE3Pose.from_obj(flat_body_T_hand)
+
+    # duration in seconds
+    seconds = 2
+
+    arm_command = RobotCommandBuilder.arm_pose_command(
+        odom_T_hand.x, odom_T_hand.y, odom_T_hand.z, odom_T_hand.rot.w, odom_T_hand.rot.x,
+        odom_T_hand.rot.y, odom_T_hand.rot.z, ODOM_FRAME_NAME, seconds)
+
+    # Make the open gripper RobotCommand
+    gripper_command = RobotCommandBuilder.claw_gripper_open_fraction_command(1.0)
+
+    # Combine the arm and gripper commands into one RobotCommand
+    command = RobotCommandBuilder.build_synchro_command(gripper_command, arm_command)
+
     # Send the request
-    #command = RobotCommandBuilder.build_synchro_command(gripper_command, arm_command)
-    cmd_id = command_client.robot_command(gripper_command)
+    cmd_id = command_client.robot_command(command)
     robot.logger.info('Moving arm to position 1.')
 
     # Wait until the arm arrives at the goal.
     block_until_arm_arrives_with_prints(robot, command_client, cmd_id)
-    input("i am here yo")
+
+
+def block_until_arm_arrives_with_prints(robot, command_client, cmd_id):
+    """Block until the arm arrives at the goal and print the distance remaining.
+        Note: a version of this function is available as a helper in robot_command
+        without the prints.
+    """
+    while True:
+        feedback_resp = command_client.robot_command_feedback(cmd_id)
+        robot.logger.info(
+            'Distance to go: ' +
+            '{:.2f} meters'.format(feedback_resp.feedback.synchronized_feedback.arm_command_feedback
+                                   .arm_cartesian_feedback.measured_pos_distance_to_goal) +
+            ', {:.2f} radians'.format(
+                feedback_resp.feedback.synchronized_feedback.arm_command_feedback.
+                arm_cartesian_feedback.measured_rot_distance_to_goal))
+
+        if feedback_resp.feedback.synchronized_feedback.arm_command_feedback.arm_cartesian_feedback.status == arm_command_pb2.ArmCartesianCommand.Feedback.STATUS_TRAJECTORY_COMPLETE:
+            robot.logger.info('Move complete.')
+            break
+        time.sleep(0.1)
 
 
 def main(argv):
@@ -388,13 +446,13 @@ def main(argv):
             blocking_stand(command_client, timeout_sec=10)
             robot.logger.info("Robot standing.")
 
-
-            robot_state = robot_state_client.get_robot_state()
-            print(robot_state.kinematic_state.transforms_snapshot.child_to_parent_edge_map["hand"].parent_tform_child)
-            input("open gripper")
-            open_gripper(options, sdk, robot, lease_client, robot_state_client, image_client, manipulation_api_client, command_client)
+            print("Grasp handle")
             arm_object_grasp(options, sdk, robot, lease_client, robot_state_client, image_client, manipulation_api_client, command_client)
+            print("Opening drawer")
             run_constrained_manipulation(options, sdk, robot, lease_client, robot_state_client, image_client, manipulation_api_client, command_client)
+            print("Open gripper")
+            open_gripper(options, sdk, robot, lease_client, robot_state_client, image_client, manipulation_api_client, command_client)
+
         return True
     except Exception as exc:  # pylint: disable=broad-except
         logger = bosdyn.client.util.get_logger()
