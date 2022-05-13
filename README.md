@@ -11,7 +11,7 @@ This is a repository of utilities for Spot, mainly relying on the Spot SDK. For 
 2) walk robot around (using tabley)
 (OPTIONAL):
 	- '9' for automatic loop closure, '0' to automatically close all loops
-	- 'a' for anchoring optimization (needed to construct metric-consistent map)
+	- 'a' for anchoring optimization (This constructs a metric-consistent map and defines a seed frame that acts as global map frame, needed for certain scripts below)
 3) '2' to stop map recording
 4) '5' to download map
 5) 'q' to quit
@@ -35,8 +35,7 @@ python3 -m graph_nav_command_line --upload-filepath <MAP_DIR>/downloaded_graph/ 
 3) '8' to navigate to anchor pose in seed frame
 
 ### APPROACH FIDUCIAL ###
-First, build a map of the environment following the instructions before. Then, run the following command, with --path pointing to your downloaded map and --fiducial being the number of the fiducial you want
-
+First, build a map of the environment following the instructions before (make sure to do anchor optimization). Then, run the following command, with --path pointing to your downloaded map and --fiducial being the number of the fiducial you want. Currently, this code only produces the position and rotation of the robot in the seed frame, I will connect this code shortly to automatically navigate as well.
 ```
 python approach_fiducials.py --path ./maps/cit121/downloaded_graph/ --fiducial 523
 ```
