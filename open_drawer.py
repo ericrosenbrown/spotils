@@ -26,9 +26,10 @@ from bosdyn.client.robot_command import RobotCommandClient, blocking_stand
 from bosdyn.client.robot_state import RobotStateClient
 from constrained_manipulation_helper import *
 from bosdyn.api import robot_command_pb2
+from bosdyn.api.basic_command_pb2 import RobotCommandFeedbackStatus
 from bosdyn.api import arm_command_pb2, geometry_pb2
 from bosdyn.client import robot_command
-from bosdyn.client.frame_helpers import GRAV_ALIGNED_BODY_FRAME_NAME, ODOM_FRAME_NAME, get_a_tform_b
+from bosdyn.client.frame_helpers import BODY_FRAME_NAME, GRAV_ALIGNED_BODY_FRAME_NAME, ODOM_FRAME_NAME, get_a_tform_b, get_se2_a_tform_b
 from bosdyn.client.robot_command import (RobotCommandBuilder, RobotCommandClient,
                                          block_until_arm_arrives, blocking_stand)
 from bosdyn.client.robot_state import RobotStateClient
@@ -46,6 +47,7 @@ def verify_estop(robot):
         " estop SDK example, to configure E-Stop."
         robot.logger.error(error_message)
         raise Exception(error_message)
+
 
 
 def arm_object_grasp(config, sdk, robot, lease_client, robot_state_client, image_client, manipulation_api_client, command_client):
@@ -80,6 +82,7 @@ def arm_object_grasp(config, sdk, robot, lease_client, robot_state_client, image
     cv2.setMouseCallback(image_title, cv_mouse_callback)
 
     global g_image_click, g_image_display
+
     g_image_display = img
     cv2.imshow(image_title, g_image_display)
     while g_image_click is None:
@@ -88,6 +91,8 @@ def arm_object_grasp(config, sdk, robot, lease_client, robot_state_client, image
             # Quit
             print('"q" pressed, exiting.')
             exit(0)
+
+
 
     robot.logger.info('Picking object at image location (' + str(g_image_click[0]) + ', ' +
                       str(g_image_click[1]) + ')')
@@ -287,7 +292,7 @@ def run_constrained_manipulation(config, sdk, robot, lease_client, robot_state_c
     command.full_body_command.constrained_manipulation_request.end_time.CopyFrom(
         robot.time_sync.robot_timestamp_from_local_secs(time.time() + 10))
     command_client.robot_command_async(command)
-    time.sleep(15.0)
+    time.sleep(7.0)
 
 def open_gripper(options, sdk, robot, lease_client, robot_state_client, image_client, manipulation_api_client, command_client):
      # Close the gripper
@@ -335,7 +340,8 @@ def open_gripper(options, sdk, robot, lease_client, robot_state_client, image_cl
     robot.logger.info('Moving arm to position 1.')
 
     # Wait until the arm arrives at the goal.
-    block_until_arm_arrives_with_prints(robot, command_client, cmd_id)
+    #block_until_arm_arrives_with_prints(robot, command_client, cmd_id)
+    time.sleep(2)
 
 
 def block_until_arm_arrives_with_prints(robot, command_client, cmd_id):
@@ -358,6 +364,41 @@ def block_until_arm_arrives_with_prints(robot, command_client, cmd_id):
             break
         time.sleep(0.1)
 
+
+def relative_move(dx, dy, dyaw, frame_name, robot_command_client, robot_state_client, stairs=False):
+    transforms = robot_state_client.get_robot_state().kinematic_state.transforms_snapshot
+
+    # Build the transform for where we want the robot to be relative to where the body currently is.
+    body_tform_goal = math_helpers.SE2Pose(x=dx, y=dy, angle=dyaw)
+    # We do not want to command this goal in body frame because the body will move, thus shifting
+    # our goal. Instead, we transform this offset to get the goal position in the output frame
+    # (which will be either odom or vision).
+    out_tform_body = get_se2_a_tform_b(transforms, frame_name, BODY_FRAME_NAME)
+    out_tform_goal = out_tform_body * body_tform_goal
+
+    # Command the robot to go to the goal point in the specified frame. The command will stop at the
+    # new position.
+    robot_cmd = RobotCommandBuilder.synchro_se2_trajectory_point_command(
+        goal_x=out_tform_goal.x, goal_y=out_tform_goal.y, goal_heading=out_tform_goal.angle,
+        frame_name=frame_name, params=RobotCommandBuilder.mobility_params(stair_hint=stairs))
+    end_time = 10.0
+    cmd_id = robot_command_client.robot_command(lease=None, command=robot_cmd,
+                                                end_time_secs=time.time() + end_time)
+    # Wait until the robot has reached the goal.
+    while True:
+        feedback = robot_command_client.robot_command_feedback(cmd_id)
+        mobility_feedback = feedback.feedback.synchronized_feedback.mobility_command_feedback
+        if mobility_feedback.status != RobotCommandFeedbackStatus.STATUS_PROCESSING:
+            print("Failed to reach the goal")
+            return False
+        traj_feedback = mobility_feedback.se2_trajectory_feedback
+        if (traj_feedback.status == traj_feedback.STATUS_AT_GOAL and
+                traj_feedback.body_movement_status == traj_feedback.BODY_STATUS_SETTLED):
+            print("Arrived at the goal.")
+            return True
+        time.sleep(1)
+
+    return True
 
 def main(argv):
     """Command line interface."""
@@ -399,6 +440,12 @@ def main(argv):
         num += 1
     if options.force_squeeze_grasp:
         num += 1
+
+    dx = -0.25
+    dy = 0
+    dyaw = 0
+    stairs = False
+    dframe = ODOM_FRAME_NAME
 
     if num > 1:
         print("Error: cannot force more than one type of grasp.  Choose only one.")
@@ -450,14 +497,31 @@ def main(argv):
             arm_object_grasp(options, sdk, robot, lease_client, robot_state_client, image_client, manipulation_api_client, command_client)
             print("Opening drawer")
             run_constrained_manipulation(options, sdk, robot, lease_client, robot_state_client, image_client, manipulation_api_client, command_client)
+            print("Step back")
+            relative_move(dx, dy, dyaw, dframe, command_client, robot_state_client, stairs=stairs)
             print("Open gripper")
             open_gripper(options, sdk, robot, lease_client, robot_state_client, image_client, manipulation_api_client, command_client)
+            print("Stow arm")
+            stow_spot_arm(command_client, robot)
+
 
         return True
     except Exception as exc:  # pylint: disable=broad-except
         logger = bosdyn.client.util.get_logger()
         logger.exception("Threw an exception")
         return False
+
+
+def stow_spot_arm(command_client,robot):
+    # Stow the arm
+    # Build the stow command using RobotCommandBuilder
+    stow = RobotCommandBuilder.arm_stow_command()
+
+    # Issue the command via the RobotCommandClient
+    stow_command_id = command_client.robot_command(stow)
+
+    robot.logger.info("Stow command issued.")
+    block_until_arm_arrives(command_client, stow_command_id, 3.0)
 
 
 if __name__ == '__main__':
