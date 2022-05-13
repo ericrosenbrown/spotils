@@ -37,7 +37,7 @@ python3 -m graph_nav_command_line --upload-filepath <MAP_DIR>/downloaded_graph/ 
 ### APPROACH FIDUCIAL ###
 First, build a map of the environment following the instructions before (make sure to do anchor optimization). Then, run the following command, with --path pointing to your downloaded map and --fiducial being the number of the fiducial you want. Currently, this code only produces the position and rotation of the robot in the seed frame, I will connect this code shortly to automatically navigate as well.
 ```
-python approach_fiducials.py --path ./maps/cit121/downloaded_graph/ --fiducial 523
+python approach_fiducials.py --path <MAP_DIR>/downloaded_graph/ --fiducial 523
 ```
 
 ### OPEN DRAWER ###
