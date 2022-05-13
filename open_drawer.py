@@ -24,7 +24,7 @@ from bosdyn.client.image import ImageClient
 from bosdyn.client.manipulation_api_client import ManipulationApiClient
 from bosdyn.client.robot_command import RobotCommandClient, blocking_stand
 from bosdyn.client.robot_state import RobotStateClient
-from constrained_manipulation_helper import *
+from utils.constrained_manipulation_helper import *
 from bosdyn.api import robot_command_pb2
 from bosdyn.api.basic_command_pb2 import RobotCommandFeedbackStatus
 from bosdyn.api import arm_command_pb2, geometry_pb2
@@ -94,8 +94,12 @@ def arm_object_grasp(config, sdk, robot, lease_client, robot_state_client, image
 
 
 
+
     robot.logger.info('Picking object at image location (' + str(g_image_click[0]) + ', ' +
                       str(g_image_click[1]) + ')')
+
+    print(g_image_display[g_image_click[1],g_image_click[0]])
+    input("wait yee boy")
 
     pick_vec = geometry_pb2.Vec2(x=g_image_click[0], y=g_image_click[1])
 
