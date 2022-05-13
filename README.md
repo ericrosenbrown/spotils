@@ -3,7 +3,9 @@ This is a repository of utilities for Spot, mainly relying on the Spot SDK. For 
 ### RECORD MAP ###
 ### Weblink: https://dev.bostondynamics.com/python/examples/graph_nav_command_line/readme
 - The python file is located in: <SPOT_SDK_DIR>/python/examples/graph_nav_command_line
+	```
 	python3 -m recording_command_line --download-filepath <MAP_DIR> <ROBOT_IP>
+	```
 - This will download the map to <MAP_DIR>
 1) '1' for start recording map
 2) walk robot around (using tabley)
