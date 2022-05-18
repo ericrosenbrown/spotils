@@ -49,6 +49,26 @@ def verify_estop(robot):
         raise Exception(error_message)
 
 
+def red_distance(p):
+    red = np.array([ 35, 29, 206])
+    p = np.array(p)
+    sum_sq = np.sum(np.square(red- p))
+    # Doing squareroot and
+    # printing Euclidean distance
+    return(np.sqrt(sum_sq))
+
+def best_red(spot_image):
+    best_x = None
+    best_y = None
+    best_dist = 1000000000
+    for x in range(spot_image.shape[0]):
+        for y in range(spot_image.shape[1]):
+            red_val = red_distance(spot_image[x,y])
+            if red_val < best_dist:
+                best_x = x
+                best_y = y
+                best_dist = red_val
+    return(best_x,best_y,best_dist)
 
 def arm_object_grasp(config, sdk, robot, lease_client, robot_state_client, image_client, manipulation_api_client, command_client):
     """A simple example of using the Boston Dynamics API to command Spot's arm."""
@@ -78,30 +98,42 @@ def arm_object_grasp(config, sdk, robot, lease_client, robot_state_client, image
     # Show the image to the user and wait for them to click on a pixel
     robot.logger.info('Click on an object to start grasping...')
     image_title = 'Click to grasp'
+    
     cv2.namedWindow(image_title)
     cv2.setMouseCallback(image_title, cv_mouse_callback)
 
     global g_image_click, g_image_display
 
+    """
     g_image_display = img
     cv2.imshow(image_title, g_image_display)
+
+    g_image_click = None
     while g_image_click is None:
         key = cv2.waitKey(1) & 0xFF
         if key == ord('q') or key == ord('Q'):
             # Quit
             print('"q" pressed, exiting.')
             exit(0)
-
+    
 
 
 
     robot.logger.info('Picking object at image location (' + str(g_image_click[0]) + ', ' +
                       str(g_image_click[1]) + ')')
 
+    print("selected pixels, then red value")
+    print(g_image_click[1],g_image_click[0])
     print(g_image_display[g_image_click[1],g_image_click[0]])
-    input("wait yee boy")
 
-    pick_vec = geometry_pb2.Vec2(x=g_image_click[0], y=g_image_click[1])
+    print(red_distance(g_image_display[g_image_click[1],g_image_click[0]]))
+    print("My code for best")
+    """
+    pix_x, pix_y, pix_red = best_red(img)
+    print(pix_x, pix_y, pix_red)
+
+    #pick_vec = geometry_pb2.Vec2(x=g_image_click[0], y=g_image_click[1])
+    pick_vec = geometry_pb2.Vec2(x=pix_y, y=pix_x)
 
     # Build the proto
     grasp = manipulation_api_pb2.PickObjectInImage(
