@@ -92,6 +92,33 @@ def load_map(path):
         return (current_graph, current_waypoints, current_waypoint_snapshots,
                 current_edge_snapshots, current_anchors, current_anchored_world_objects)
 
+
+def nav_to_fiducial(graph_nav_interface,fiducial,map_path):
+    # Load the map from the given file.
+    (current_graph, current_waypoints, current_waypoint_snapshots, current_edge_snapshots,
+     current_anchors, current_anchored_world_objects) = load_map(map_path)
+
+    #### seed_tform_object gives pose of fiducial in seed frame, as protobug
+    seed_tform_fiducial_pb = current_anchored_world_objects[fiducial][0].seed_tform_object
+    
+    #Turn protobuf SE3Pose into math SE3Pose
+    seed_tform_fiducial = SE3Pose(x=seed_tform_fiducial_pb.position.x,
+                            y=seed_tform_fiducial_pb.position.y,
+                            z=seed_tform_fiducial_pb.position.z,
+                            rot=seed_tform_fiducial_pb.rotation)
+
+    #Construct SE3 pose relative to fiducial we want for approach
+    fiducial_tform_approach = SE3Pose(x=0,
+                            y=0,
+                            z=1.25,
+                            rot=Quat(w=1,x=0,y=0,z=0))
+    
+    seed_tfrom_approach = seed_tform_fiducial.mult(fiducial_tform_approach)
+    print(seed_tfrom_approach)
+    print(seed_tfrom_approach.rotation.to_yaw())
+
+    graph_nav_interface._navigate_to_anchor([seed_tfrom_approach.position.x, seed_tfrom_approach.position.y, seed_tfrom_approach.rotation.to_yaw()])
+
 def main(argv):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--path', type=str, help='Map to draw.')
@@ -118,7 +145,7 @@ def main(argv):
     #Construct SE3 pose relative to fiducial we want for approach
     fiducial_tform_approach = SE3Pose(x=0,
                             y=0,
-                            z=1.5,
+                            z=1.25,
                             rot=Quat(w=1,x=0,y=0,z=0))
     
     seed_tfrom_approach = seed_tform_fiducial.mult(fiducial_tform_approach)

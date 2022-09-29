@@ -96,6 +96,7 @@ def arm_object_grasp(config, sdk, robot, lease_client, robot_state_client, image
         img = cv2.imdecode(img, -1)
 
     # Show the image to the user and wait for them to click on a pixel
+    """
     robot.logger.info('Click on an object to start grasping...')
     image_title = 'Click to grasp'
     
@@ -104,7 +105,7 @@ def arm_object_grasp(config, sdk, robot, lease_client, robot_state_client, image
 
     global g_image_click, g_image_display
 
-    """
+    
     g_image_display = img
     cv2.imshow(image_title, g_image_display)
 
@@ -169,7 +170,7 @@ def arm_object_grasp(config, sdk, robot, lease_client, robot_state_client, image
         time.sleep(0.25)
 
     robot.logger.info('Finished grasp.')
-    time.sleep(4.0)
+    time.sleep(2.0)
 
 
 
@@ -328,7 +329,7 @@ def run_constrained_manipulation(config, sdk, robot, lease_client, robot_state_c
     command.full_body_command.constrained_manipulation_request.end_time.CopyFrom(
         robot.time_sync.robot_timestamp_from_local_secs(time.time() + 10))
     command_client.robot_command_async(command)
-    time.sleep(7.0)
+    time.sleep(2.0)
 
 def open_gripper(options, sdk, robot, lease_client, robot_state_client, image_client, manipulation_api_client, command_client):
      # Close the gripper
@@ -440,13 +441,8 @@ def main(argv):
     """Command line interface."""
     parser = argparse.ArgumentParser()
     bosdyn.client.util.add_base_arguments(parser)
-    parser.add_argument('-i', '--image-source', help='Get image from source',
-                        default='frontleft_fisheye_image')
     parser.add_argument('-t', '--force-top-down-grasp',
                         help='Force the robot to use a top-down grasp (vector_alignment demo)',
-                        action='store_true')
-    parser.add_argument('-f', '--force-horizontal-grasp',
-                        help='Force the robot to use a horizontal grasp (vector_alignment demo)',
                         action='store_true')
     parser.add_argument(
         '-r', '--force-45-angle-grasp',
@@ -455,37 +451,21 @@ def main(argv):
     parser.add_argument('-s', '--force-squeeze-grasp',
                         help='Force the robot to use a squeeze grasp', action='store_true')
 
-    parser.add_argument(
-        '--task-type', help='Specify the task type to manipulate.', default='crank', choices=[
-            'lever', 'left_handed_ballvalve', 'right_handed_ballvalve', 'crank', 'wheel', 'cabinet',
-            'drawer', 'knob'
-        ])
-    parser.add_argument('--task-velocity', help='Desired task velocity', type=float, default=0.5)
-    parser.add_argument('--force-limit', help='Max force to be applied along task dimensions',
-                        type=float, default=40)
     parser.add_argument('--torque-limit', help='Max force to be applied along task dimensions',
                         type=float, default=5.0)
-    options = parser.parse_args(argv)
 
-    num = 0
-    if options.force_top_down_grasp:
-        num += 1
-    if options.force_horizontal_grasp:
-        num += 1
-    if options.force_45_angle_grasp:
-        num += 1
-    if options.force_squeeze_grasp:
-        num += 1
+    options = parser.parse_args(argv)
+    options.task_velocity = -0.5
+    options.force_horizontal_grasp = True
+    options.force_limit = 40
+    options.image_source = "hand_color_image"
+    options.task_type = "drawer"
 
     dx = -0.25
     dy = 0
     dyaw = 0
     stairs = False
     dframe = ODOM_FRAME_NAME
-
-    if num > 1:
-        print("Error: cannot force more than one type of grasp.  Choose only one.")
-        sys.exit(1)
 
     try:
 
@@ -529,6 +509,7 @@ def main(argv):
             blocking_stand(command_client, timeout_sec=10)
             robot.logger.info("Robot standing.")
 
+            """
             print("Grasp handle")
             arm_object_grasp(options, sdk, robot, lease_client, robot_state_client, image_client, manipulation_api_client, command_client)
             print("Opening drawer")
@@ -539,6 +520,8 @@ def main(argv):
             open_gripper(options, sdk, robot, lease_client, robot_state_client, image_client, manipulation_api_client, command_client)
             print("Stow arm")
             stow_spot_arm(command_client, robot)
+            """
+            open_drawer_skill(options, sdk, robot, lease_client, robot_state_client, image_client, manipulation_api_client, command_client)
 
 
         return True
@@ -546,6 +529,25 @@ def main(argv):
         logger = bosdyn.client.util.get_logger()
         logger.exception("Threw an exception")
         return False
+
+def open_drawer_skill(options, sdk, robot, lease_client, robot_state_client, image_client, manipulation_api_client, command_client):
+    dx = -0.25
+    dy = 0
+    dyaw = 0
+    stairs = False
+    dframe = ODOM_FRAME_NAME
+
+    print("Grasp handle")
+    arm_object_grasp(options, sdk, robot, lease_client, robot_state_client, image_client, manipulation_api_client, command_client)
+    print("Opening drawer")
+    run_constrained_manipulation(options, sdk, robot, lease_client, robot_state_client, image_client, manipulation_api_client, command_client)
+    print("Step back")
+    relative_move(dx, dy, dyaw, dframe, command_client, robot_state_client, stairs=stairs)
+    print("Open gripper")
+    open_gripper(options, sdk, robot, lease_client, robot_state_client, image_client, manipulation_api_client, command_client)
+    print("Stow arm")
+    stow_spot_arm(command_client, robot)
+
 
 
 def stow_spot_arm(command_client,robot):
